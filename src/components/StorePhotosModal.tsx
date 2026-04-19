@@ -15,7 +15,7 @@ export default function StorePhotosModal({ isOpen, onClose, onPhotosAdded, store
   const [submitting, setSubmitting] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
-  const [result, setResult] = useState<{ productsDetected: number; products: Array<{ name: string; croppedImagePath: string }> } | null>(null);
+  const [result, setResult] = useState<{ productsDetected: number; products: Array<{ name: string; croppedImagePath: string }>; skipped?: Array<{ name: string; reason: string }> } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen || !store) return null;
@@ -113,6 +113,20 @@ export default function StorePhotosModal({ isOpen, onClose, onPhotosAdded, store
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+            {result.skipped && result.skipped.length > 0 && (
+              <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <h4 className="text-sm font-semibold text-amber-800 mb-1.5">
+                  {result.skipped.length} product{result.skipped.length !== 1 ? "s" : ""} skipped
+                </h4>
+                <ul className="space-y-1">
+                  {result.skipped.map((s, i) => (
+                    <li key={i} className="text-xs text-amber-700">
+                      <span className="font-medium">{s.name}</span> — {s.reason}
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
             <button

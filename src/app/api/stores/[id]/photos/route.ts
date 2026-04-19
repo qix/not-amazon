@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { scanImageForProducts, cropProduct } from "@/lib/productScanner";
+import { scanImageForProducts, cropProduct, type SkippedProduct } from "@/lib/productScanner";
 import { getStorePhotosDir } from "@/lib/env";
 import { v4 as uuidv4 } from "uuid";
 import path from "path";
@@ -43,6 +43,7 @@ export async function POST(
     price: number;
     croppedImagePath: string;
   }> = [];
+  const allSkipped: SkippedProduct[] = [];
 
   for (const photo of photos) {
     const photoId = uuidv4();
@@ -56,9 +57,10 @@ export async function POST(
     const dbFilePath = `/api/images/stores/${fileName}`;
     insertPhoto.run(photoId, storeId, dbFilePath);
 
-    const detected = await scanImageForProducts(filePath);
+    const scanResult = await scanImageForProducts(filePath);
+    allSkipped.push(...scanResult.skipped);
 
-    for (const product of detected) {
+    for (const product of scanResult.products) {
       const productId = uuidv4();
       const croppedPath = await cropProduct(
         filePath, product.bboxX, product.bboxY, product.bboxW, product.bboxH, productId
@@ -83,5 +85,6 @@ export async function POST(
   return NextResponse.json({
     productsDetected: allProducts.length,
     products: allProducts,
+    skipped: allSkipped,
   });
 }

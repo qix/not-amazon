@@ -22,10 +22,21 @@ interface DetectedProduct {
   bboxH: number;
 }
 
+export interface SkippedProduct {
+  name: string;
+  reason: string;
+}
+
+export interface ScanResult {
+  products: DetectedProduct[];
+  skipped: SkippedProduct[];
+}
+
 interface IdentifiedProduct {
   name: string;
   description: string;
   price: number;
+  quality: "clear" | "blurry" | "partial" | "obstructed";
 }
 
 function getMediaType(imagePath: string): "image/jpeg" | "image/png" | "image/gif" | "image/webp" {
@@ -104,13 +115,13 @@ async function createGridOverlay(imagePath: string): Promise<{ base64: string; w
   return { base64: overlaid.toString("base64"), width, height };
 }
 
-export async function scanImageForProducts(imagePath: string): Promise<DetectedProduct[]> {
+export async function scanImageForProducts(imagePath: string): Promise<ScanResult> {
   const imageBuffer = fs.readFileSync(imagePath);
   const base64Data = imageBuffer.toString("base64");
   const mediaType = getMediaType(imagePath);
   const client = getClient();
 
-  // ── Pass 1: Identify products (no coordinates) ──
+  // ── Pass 1: Identify products with quality assessment ──
   const identifyResponse = await client.messages.create({
     model: "claude-opus-4-6",
     max_tokens: 4096,
@@ -130,9 +141,16 @@ For each product provide:
 - name: A short product name (e.g. "Organic Whole Milk", "Sourdough Bread")
 - description: A brief description including brand if visible, size, variety
 - price: Your best estimate of a reasonable retail price in USD
+- quality: Assess the visibility of the product in the photo. Use one of:
+  - "clear" — the entire product package is clearly visible and in focus
+  - "blurry" — the product is out of focus or the image is too blurry to read labels
+  - "partial" — the product is partially cut off at the edge of the frame, or significantly occluded by other items
+  - "obstructed" — the product is mostly hidden behind other items or too far away to identify clearly
+
+Only products with "clear" quality will be imported. Be strict — if you can't see the full package clearly, mark it as blurry/partial/obstructed.
 
 Respond with ONLY a JSON array, no other text. Example:
-[{"name":"Organic Milk","description":"Horizon organic whole milk, 1 gallon","price":5.99}]
+[{"name":"Organic Milk","description":"Horizon organic whole milk, 1 gallon","price":5.99,"quality":"clear"},{"name":"Cereal Box","description":"Partially visible cereal box","price":4.99,"quality":"partial"}]
 
 If no products are visible, return: []`,
           },
@@ -142,16 +160,39 @@ If no products are visible, return: []`,
   });
 
   const identifyText = identifyResponse.content.find((b) => b.type === "text");
-  if (!identifyText || identifyText.type !== "text") return [];
+  if (!identifyText || identifyText.type !== "text") return { products: [], skipped: [] };
 
-  let products: IdentifiedProduct[];
+  let allIdentified: IdentifiedProduct[];
   try {
-    products = parseJson<IdentifiedProduct[]>(identifyText.text);
-    if (!Array.isArray(products) || products.length === 0) return [];
+    allIdentified = parseJson<IdentifiedProduct[]>(identifyText.text);
+    if (!Array.isArray(allIdentified) || allIdentified.length === 0) return { products: [], skipped: [] };
   } catch (err) {
     console.error("Pass 1 parse error:", err, identifyText.text);
-    return [];
+    return { products: [], skipped: [] };
   }
+
+  // Separate clear products from skipped ones
+  const qualityReasons: Record<string, string> = {
+    blurry: "Too blurry or out of focus to read labels",
+    partial: "Product is partially cut off or cropped at the edge of the frame",
+    obstructed: "Product is mostly hidden behind other items or too far away",
+  };
+
+  const skipped: SkippedProduct[] = [];
+  const products: IdentifiedProduct[] = [];
+
+  for (const item of allIdentified) {
+    if (item.quality === "clear" || !item.quality) {
+      products.push(item);
+    } else {
+      skipped.push({
+        name: item.name,
+        reason: qualityReasons[item.quality] || `Quality too low (${item.quality})`,
+      });
+    }
+  }
+
+  if (products.length === 0) return { products: [], skipped };
 
   // ── Pass 2: Locate each product using a grid overlay ──
   const { base64: gridBase64, width: imgW, height: imgH } = await createGridOverlay(imagePath);
@@ -196,10 +237,12 @@ Be precise — the bounding box should tightly contain just that product, not th
 
   const locateText = locateResponse.content.find((b) => b.type === "text");
   if (!locateText || locateText.type !== "text") {
-    // Fall back: return products with no bounding boxes (centered crop)
-    return products.map((p) => ({
-      ...p, bboxX: 0.1, bboxY: 0.1, bboxW: 0.8, bboxH: 0.8,
-    }));
+    return {
+      products: products.map((p) => ({
+        ...p, bboxX: 0.1, bboxY: 0.1, bboxW: 0.8, bboxH: 0.8,
+      })),
+      skipped,
+    };
   }
 
   let locations: Array<{ index: number; topLeft: string; bottomRight: string }>;
@@ -207,9 +250,12 @@ Be precise — the bounding box should tightly contain just that product, not th
     locations = parseJson(locateText.text);
   } catch (err) {
     console.error("Pass 2 parse error:", err, locateText.text);
-    return products.map((p) => ({
-      ...p, bboxX: 0.1, bboxY: 0.1, bboxW: 0.8, bboxH: 0.8,
-    }));
+    return {
+      products: products.map((p) => ({
+        ...p, bboxX: 0.1, bboxY: 0.1, bboxW: 0.8, bboxH: 0.8,
+      })),
+      skipped,
+    };
   }
 
   // Convert grid cell references to fractional bounding boxes
@@ -270,7 +316,7 @@ Be precise — the bounding box should tightly contain just that product, not th
     }
   }
 
-  return detected;
+  return { products: detected, skipped };
 }
 
 export async function cropProduct(

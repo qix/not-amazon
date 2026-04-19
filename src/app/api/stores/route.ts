@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Database from "better-sqlite3";
 import { getDb } from "@/lib/db";
-import { scanImageForProducts, cropProduct } from "@/lib/productScanner";
+import { scanImageForProducts, cropProduct, type SkippedProduct } from "@/lib/productScanner";
 import { getStorePhotosDir } from "@/lib/env";
 import { v4 as uuidv4 } from "uuid";
 import path from "path";
@@ -40,6 +40,7 @@ async function processPhotosForStore(
     price: number;
     croppedImagePath: string;
   }> = [];
+  const allSkipped: SkippedProduct[] = [];
 
   const insertPhoto = db.prepare(
     "INSERT INTO store_photos (id, store_id, file_path) VALUES (?, ?, ?)"
@@ -61,9 +62,10 @@ async function processPhotosForStore(
     const dbFilePath = `/api/images/stores/${fileName}`;
     insertPhoto.run(photoId, storeId, dbFilePath);
 
-    const detected = await scanImageForProducts(filePath);
+    const scanResult = await scanImageForProducts(filePath);
+    allSkipped.push(...scanResult.skipped);
 
-    for (const product of detected) {
+    for (const product of scanResult.products) {
       const productId = uuidv4();
       const croppedPath = await cropProduct(
         filePath, product.bboxX, product.bboxY, product.bboxW, product.bboxH, productId
@@ -85,7 +87,7 @@ async function processPhotosForStore(
     }
   }
 
-  return allProducts;
+  return { products: allProducts, skipped: allSkipped };
 }
 
 export async function POST(req: NextRequest) {
@@ -108,12 +110,13 @@ export async function POST(req: NextRequest) {
     "INSERT INTO stores (id, name, description, latitude, longitude, address) VALUES (?, ?, ?, ?, ?, ?)"
   ).run(storeId, name, description || "", latitude, longitude, address || "");
 
-  const allProducts = await processPhotosForStore(db, storeId, photos);
+  const { products: allProducts, skipped } = await processPhotosForStore(db, storeId, photos);
 
   return NextResponse.json({
     store: { id: storeId, name, description, latitude, longitude, address },
     productsDetected: allProducts.length,
     products: allProducts,
+    skipped,
   });
 }
 

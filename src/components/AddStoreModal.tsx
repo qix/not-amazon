@@ -29,7 +29,7 @@ export default function AddStoreModal({ isOpen, onClose, onStoreAdded, userLocat
   const [photos, setPhotos] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
-  const [result, setResult] = useState<{ store: { id: string }; productsDetected: number; products: Array<{ name: string; croppedImagePath: string }> } | null>(null);
+  const [result, setResult] = useState<{ store: { id: string }; productsDetected: number; products: Array<{ name: string; croppedImagePath: string }>; skipped?: Array<{ name: string; reason: string }> } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const geoTimeout = useRef<NodeJS.Timeout | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -186,6 +186,20 @@ export default function AddStoreModal({ isOpen, onClose, onStoreAdded, userLocat
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+            {result.skipped && result.skipped.length > 0 && (
+              <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <h4 className="text-sm font-semibold text-amber-800 mb-1.5">
+                  {result.skipped.length} product{result.skipped.length !== 1 ? "s" : ""} skipped
+                </h4>
+                <ul className="space-y-1">
+                  {result.skipped.map((s, i) => (
+                    <li key={i} className="text-xs text-amber-700">
+                      <span className="font-medium">{s.name}</span> — {s.reason}
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
             <button
