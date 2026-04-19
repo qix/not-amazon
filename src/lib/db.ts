@@ -1,32 +1,23 @@
-import initSqlJs, { Database } from "sql.js";
+import Database from "better-sqlite3";
 import fs from "fs";
 import path from "path";
 import { getDbPath } from "./env";
 
-// Use globalThis to survive Next.js dev hot reloads — without this,
-// each module re-evaluation creates a new in-memory database and
-// concurrent route handlers can end up writing to different instances.
-const globalDb = globalThis as typeof globalThis & { __notAmazonDb?: Database };
+// Use globalThis to survive Next.js dev hot reloads
+const g = globalThis as typeof globalThis & { __notAmazonDb?: Database.Database };
 
-export async function getDb(): Promise<Database> {
-  if (globalDb.__notAmazonDb) return globalDb.__notAmazonDb;
+export function getDb(): Database.Database {
+  if (g.__notAmazonDb) return g.__notAmazonDb;
 
   const dbPath = getDbPath();
-  const SQL = await initSqlJs();
-
   const dir = path.dirname(dbPath);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
-  let db: Database;
-  if (fs.existsSync(dbPath)) {
-    const buffer = fs.readFileSync(dbPath);
-    db = new SQL.Database(buffer);
-  } else {
-    db = new SQL.Database();
-  }
+  const db = new Database(dbPath);
+  db.pragma("journal_mode = WAL");
+  db.pragma("foreign_keys = ON");
 
-  // Create tables
-  db.run(`
+  db.exec(`
     CREATE TABLE IF NOT EXISTS stores (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -38,7 +29,7 @@ export async function getDb(): Promise<Database> {
     )
   `);
 
-  db.run(`
+  db.exec(`
     CREATE TABLE IF NOT EXISTS store_photos (
       id TEXT PRIMARY KEY,
       store_id TEXT NOT NULL,
@@ -48,7 +39,7 @@ export async function getDb(): Promise<Database> {
     )
   `);
 
-  db.run(`
+  db.exec(`
     CREATE TABLE IF NOT EXISTS products (
       id TEXT PRIMARY KEY,
       store_id TEXT NOT NULL,
@@ -68,18 +59,6 @@ export async function getDb(): Promise<Database> {
     )
   `);
 
-  globalDb.__notAmazonDb = db;
-  saveDb();
+  g.__notAmazonDb = db;
   return db;
-}
-
-export function saveDb() {
-  const db = globalDb.__notAmazonDb;
-  if (!db) return;
-  const dbPath = getDbPath();
-  const data = db.export();
-  const buffer = Buffer.from(data);
-  const dir = path.dirname(dbPath);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(dbPath, buffer);
 }

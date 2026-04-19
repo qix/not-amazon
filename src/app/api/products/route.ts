@@ -1,48 +1,41 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, saveDb } from "@/lib/db";
+import { getDb } from "@/lib/db";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const storeId = searchParams.get("storeId");
 
-  const db = await getDb();
+  const db = getDb();
 
-  let query: string;
-  let params: string[];
-
+  let rows;
   if (storeId) {
-    query = `
+    rows = db.prepare(`
       SELECT p.id, p.name, p.description, p.price, p.cropped_image_path,
              s.name as store_name, s.id as store_id
       FROM products p
       JOIN stores s ON p.store_id = s.id
       WHERE p.store_id = ?
       ORDER BY p.created_at DESC
-    `;
-    params = [storeId];
+    `).all(storeId);
   } else {
-    query = `
+    rows = db.prepare(`
       SELECT p.id, p.name, p.description, p.price, p.cropped_image_path,
              s.name as store_name, s.id as store_id
       FROM products p
       JOIN stores s ON p.store_id = s.id
       ORDER BY p.created_at DESC
       LIMIT 100
-    `;
-    params = [];
+    `).all();
   }
 
-  const results = db.exec(query, params);
-  if (!results.length) return NextResponse.json([]);
-
-  const products = results[0].values.map((row: (string | number | null | Uint8Array)[]) => ({
-    id: row[0],
-    name: row[1],
-    description: row[2],
-    price: row[3],
-    croppedImagePath: row[4],
-    storeName: row[5],
-    storeId: row[6],
+  const products = (rows as Record<string, unknown>[]).map((row) => ({
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    price: row.price,
+    croppedImagePath: row.cropped_image_path,
+    storeName: row.store_name,
+    storeId: row.store_id,
   }));
 
   return NextResponse.json(products);
@@ -54,23 +47,20 @@ export async function DELETE(req: NextRequest) {
   const storeId = searchParams.get("storeId");
   const all = searchParams.get("all");
 
-  const db = await getDb();
+  const db = getDb();
 
   if (all === "true") {
-    db.run("DELETE FROM products");
-    saveDb();
+    db.prepare("DELETE FROM products").run();
     return NextResponse.json({ deleted: "all" });
   }
 
   if (storeId) {
-    db.run("DELETE FROM products WHERE store_id = ?", [storeId]);
-    saveDb();
+    db.prepare("DELETE FROM products WHERE store_id = ?").run(storeId);
     return NextResponse.json({ deleted: "store", storeId });
   }
 
   if (id) {
-    db.run("DELETE FROM products WHERE id = ?", [id]);
-    saveDb();
+    db.prepare("DELETE FROM products WHERE id = ?").run(id);
     return NextResponse.json({ deleted: id });
   }
 
