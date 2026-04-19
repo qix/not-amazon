@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { getDb } from "@/lib/db";
+import { getAnthropicKey } from "@/lib/env";
 
 let _client: Anthropic | null = null;
 function getClient(): Anthropic {
   if (!_client) {
-    const apiKey = process.env.ANTHROPIC_KEY;
-    if (!apiKey) throw new Error("ANTHROPIC_KEY environment variable is not set");
-    _client = new Anthropic({ apiKey });
+    _client = new Anthropic({ apiKey: getAnthropicKey() });
   }
   return _client;
 }

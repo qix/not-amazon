@@ -2,15 +2,12 @@ import Anthropic from "@anthropic-ai/sdk";
 import sharp from "sharp";
 import path from "path";
 import fs from "fs";
+import { getAnthropicKey, getProductPhotosDir } from "./env";
 
 let _client: Anthropic | null = null;
 function getClient(): Anthropic {
   if (!_client) {
-    const apiKey = process.env.ANTHROPIC_KEY;
-    if (!apiKey) {
-      throw new Error("ANTHROPIC_KEY environment variable is not set");
-    }
-    _client = new Anthropic({ apiKey });
+    _client = new Anthropic({ apiKey: getAnthropicKey() });
   }
   return _client;
 }
@@ -293,7 +290,7 @@ export async function cropProduct(
   const width = Math.min(Math.round(bboxW * imgW), imgW - left);
   const height = Math.min(Math.round(bboxH * imgH), imgH - top);
 
-  const outputDir = path.join(process.cwd(), "public", "uploads", "products");
+  const outputDir = getProductPhotosDir();
   if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
 
   const outputPath = path.join(outputDir, `${productId}.jpg`);
@@ -303,5 +300,5 @@ export async function cropProduct(
     .jpeg({ quality: 85 })
     .toFile(outputPath);
 
-  return `/uploads/products/${productId}.jpg`;
+  return `/api/images/products/${productId}.jpg`;
 }

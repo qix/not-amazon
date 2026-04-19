@@ -1,21 +1,25 @@
 import initSqlJs, { Database } from "sql.js";
 import fs from "fs";
 import path from "path";
+import { getDbPath } from "./env";
 
-const DB_PATH = path.join(process.cwd(), "data", "not-amazon.db");
-
-let db: Database | null = null;
+// Use globalThis to survive Next.js dev hot reloads — without this,
+// each module re-evaluation creates a new in-memory database and
+// concurrent route handlers can end up writing to different instances.
+const globalDb = globalThis as typeof globalThis & { __notAmazonDb?: Database };
 
 export async function getDb(): Promise<Database> {
-  if (db) return db;
+  if (globalDb.__notAmazonDb) return globalDb.__notAmazonDb;
 
+  const dbPath = getDbPath();
   const SQL = await initSqlJs();
 
-  const dir = path.dirname(DB_PATH);
+  const dir = path.dirname(dbPath);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
-  if (fs.existsSync(DB_PATH)) {
-    const buffer = fs.readFileSync(DB_PATH);
+  let db: Database;
+  if (fs.existsSync(dbPath)) {
+    const buffer = fs.readFileSync(dbPath);
     db = new SQL.Database(buffer);
   } else {
     db = new SQL.Database();
@@ -64,15 +68,18 @@ export async function getDb(): Promise<Database> {
     )
   `);
 
+  globalDb.__notAmazonDb = db;
   saveDb();
   return db;
 }
 
 export function saveDb() {
+  const db = globalDb.__notAmazonDb;
   if (!db) return;
+  const dbPath = getDbPath();
   const data = db.export();
   const buffer = Buffer.from(data);
-  const dir = path.dirname(DB_PATH);
+  const dir = path.dirname(dbPath);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(DB_PATH, buffer);
+  fs.writeFileSync(dbPath, buffer);
 }

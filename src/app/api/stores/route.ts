@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb, saveDb } from "@/lib/db";
 import { scanImageForProducts, cropProduct } from "@/lib/productScanner";
+import { getStorePhotosDir } from "@/lib/env";
 import { v4 as uuidv4 } from "uuid";
 import path from "path";
 import fs from "fs";
@@ -31,7 +32,7 @@ async function processPhotosForStore(
   storeId: string,
   photos: File[]
 ) {
-  const uploadDir = path.join(process.cwd(), "public", "uploads", "stores");
+  const uploadDir = getStorePhotosDir();
   if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
   const allProducts: Array<{
@@ -51,7 +52,7 @@ async function processPhotosForStore(
     const bytes = await photo.arrayBuffer();
     fs.writeFileSync(filePath, Buffer.from(bytes));
 
-    const dbFilePath = `/uploads/stores/${fileName}`;
+    const dbFilePath = `/api/images/stores/${fileName}`;
     db.run("INSERT INTO store_photos (id, store_id, file_path) VALUES (?, ?, ?)", [
       photoId,
       storeId,
@@ -89,6 +90,8 @@ async function processPhotosForStore(
         croppedImagePath: croppedPath,
       });
     }
+
+    saveDb(); // persist after each photo's products
   }
 
   return allProducts;
@@ -114,10 +117,11 @@ export async function POST(req: NextRequest) {
     "INSERT INTO stores (id, name, description, latitude, longitude, address) VALUES (?, ?, ?, ?, ?, ?)",
     [storeId, name, description || "", latitude, longitude, address || ""]
   );
+  saveDb(); // persist the store before the slow photo scan
 
   const allProducts = await processPhotosForStore(db, storeId, photos);
 
-  saveDb();
+  if (allProducts.length > 0) saveDb();
 
   return NextResponse.json({
     store: { id: storeId, name, description, latitude, longitude, address },
