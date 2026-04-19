@@ -210,7 +210,7 @@ export default function Home() {
               value={searchInput}
               onChange={(e) => handleSearchInput(e.target.value)}
               placeholder="Search for products or paste an Amazon link..."
-              className="flex-1 px-4 py-1.5 rounded-l-lg text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400"
+              className="flex-1 px-4 py-1.5 rounded-l-lg bg-gray-100 text-gray-900 placeholder-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400"
             />
             <button
               type="submit"
