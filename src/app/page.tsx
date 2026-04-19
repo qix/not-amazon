@@ -42,6 +42,7 @@ export default function Home() {
   const [locationLoaded, setLocationLoaded] = useState(false);
   const [photosStore, setPhotosStore] = useState<{ id: string; name: string } | null>(null);
   const [amazonProduct, setAmazonProduct] = useState<string | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const searchTimeout = useRef<NodeJS.Timeout | null>(null);
 
   // Get user location
@@ -194,27 +195,41 @@ export default function Home() {
     <div className="h-full flex flex-col">
       {/* Header */}
       <header className="bg-gray-900 text-white z-[500] relative">
-        <div className="flex items-center gap-4 px-4 h-14">
+        <div className="flex items-center gap-2 sm:gap-4 px-3 sm:px-4 h-14">
+          {/* Sidebar toggle (mobile) */}
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="lg:hidden flex-shrink-0 p-1.5 rounded hover:bg-gray-700 transition-colors"
+            aria-label="Toggle sidebar"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              {sidebarOpen
+                ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                : <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              }
+            </svg>
+          </button>
+
           {/* Logo */}
           <a href="/" className="flex items-center gap-1.5 flex-shrink-0">
-            <span className="text-xl font-bold tracking-tight">
+            <span className="text-lg sm:text-xl font-bold tracking-tight">
               <span className="text-yellow-400">Not</span> Amazon
               <span className="text-yellow-400">.com</span>
             </span>
           </a>
 
           {/* Search */}
-          <form onSubmit={handleSearchSubmit} className="flex-1 max-w-2xl flex">
+          <form onSubmit={handleSearchSubmit} className="flex-1 max-w-2xl flex min-w-0">
             <input
               type="text"
               value={searchInput}
               onChange={(e) => handleSearchInput(e.target.value)}
-              placeholder="Search for products or paste an Amazon link..."
-              className="flex-1 px-4 py-1.5 rounded-l-lg bg-gray-100 text-gray-900 placeholder-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400"
+              placeholder="Search or paste Amazon link..."
+              className="flex-1 min-w-0 px-3 sm:px-4 py-1.5 rounded-l-lg bg-gray-100 text-gray-900 placeholder-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400"
             />
             <button
               type="submit"
-              className="px-5 py-1.5 bg-yellow-400 hover:bg-yellow-500 text-gray-900 rounded-r-lg font-medium text-sm transition-colors"
+              className="px-3 sm:px-5 py-1.5 bg-yellow-400 hover:bg-yellow-500 text-gray-900 rounded-r-lg font-medium text-sm transition-colors flex-shrink-0"
             >
               Search
             </button>
@@ -223,7 +238,7 @@ export default function Home() {
           {/* Import List */}
           <a
             href="/list"
-            className="px-4 py-1.5 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium text-sm transition-colors flex-shrink-0"
+            className="hidden sm:inline-flex px-4 py-1.5 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium text-sm transition-colors flex-shrink-0"
           >
             Import Amazon List
           </a>
@@ -231,7 +246,7 @@ export default function Home() {
           {/* Add Store */}
           <button
             onClick={() => setShowAddStore(true)}
-            className="flex items-center gap-1.5 px-4 py-1.5 bg-yellow-400 hover:bg-yellow-500 text-gray-900 rounded-lg font-semibold text-sm transition-colors flex-shrink-0"
+            className="hidden sm:inline-flex items-center gap-1.5 px-4 py-1.5 bg-yellow-400 hover:bg-yellow-500 text-gray-900 rounded-lg font-semibold text-sm transition-colors flex-shrink-0"
           >
             + List a Store
           </button>
@@ -239,9 +254,24 @@ export default function Home() {
       </header>
 
       {/* Main content */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden relative">
+        {/* Sidebar backdrop (mobile) */}
+        {sidebarOpen && (
+          <div
+            className="fixed inset-0 bg-black/40 z-[400] lg:hidden"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
+
         {/* Sidebar */}
-        <div className="w-96 flex-shrink-0 border-r border-gray-200 overflow-hidden">
+        <div
+          className={`
+            fixed inset-y-0 left-0 top-14 z-[401] w-80 sm:w-96 border-r border-gray-200 bg-white
+            transform transition-transform duration-200 ease-in-out
+            lg:relative lg:top-0 lg:z-auto lg:translate-x-0 lg:flex-shrink-0
+            ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
+          `}
+        >
           <ProductSidebar
             products={products}
             stores={stores}
@@ -250,7 +280,7 @@ export default function Home() {
             amazonProduct={amazonProduct}
             selectedStoreId={selectedStoreId}
             onStoreHover={setHoveredStoreId}
-            onStoreSelect={setSelectedStoreId}
+            onStoreSelect={(id) => { setSelectedStoreId(id); }}
             onDeleteProduct={deleteProduct}
             onClearAll={clearAllProducts}
             onStoreUpdated={fetchStores}
@@ -269,6 +299,22 @@ export default function Home() {
               }}
             />
           )}
+
+          {/* Mobile action buttons (visible when sidebar is closed) */}
+          <div className="absolute bottom-4 left-4 right-4 flex gap-2 sm:hidden z-[300]">
+            <a
+              href="/list"
+              className="flex-1 py-2.5 bg-gray-700 text-white rounded-lg font-medium text-sm text-center shadow-lg"
+            >
+              Import List
+            </a>
+            <button
+              onClick={() => setShowAddStore(true)}
+              className="flex-1 py-2.5 bg-yellow-400 text-gray-900 rounded-lg font-semibold text-sm shadow-lg"
+            >
+              + Add Store
+            </button>
+          </div>
         </div>
       </div>
 
