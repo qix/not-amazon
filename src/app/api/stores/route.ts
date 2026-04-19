@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, saveDb } from "@/lib/db";
+import Database from "better-sqlite3";
+import { getDb } from "@/lib/db";
 import { scanImageForProducts, cropProduct } from "@/lib/productScanner";
 import { getStorePhotosDir } from "@/lib/env";
 import { v4 as uuidv4 } from "uuid";
@@ -7,28 +8,25 @@ import path from "path";
 import fs from "fs";
 
 export async function GET() {
-  const db = await getDb();
-  const stores = db.exec(
+  const db = getDb();
+  const rows = db.prepare(
     "SELECT id, name, description, latitude, longitude, address, created_at FROM stores ORDER BY created_at DESC"
-  );
-  if (!stores.length) return NextResponse.json([]);
+  ).all() as Record<string, unknown>[];
 
-  const rows = stores[0].values.map((row: (string | number | null | Uint8Array)[]) => ({
-    id: row[0],
-    name: row[1],
-    description: row[2],
-    latitude: row[3],
-    longitude: row[4],
-    address: row[5],
-    createdAt: row[6],
+  const stores = rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    latitude: row.latitude,
+    longitude: row.longitude,
+    address: row.address,
+    createdAt: row.created_at,
   }));
-  return NextResponse.json(rows);
+  return NextResponse.json(stores);
 }
 
-type DbLike = { run: (sql: string, params?: (string | number | null | Uint8Array)[]) => void; exec: (sql: string, params?: (string | number | null | Uint8Array)[]) => { columns: string[]; values: (string | number | null | Uint8Array)[][] }[] };
-
 async function processPhotosForStore(
-  db: DbLike,
+  db: Database.Database,
   storeId: string,
   photos: File[]
 ) {
@@ -43,6 +41,14 @@ async function processPhotosForStore(
     croppedImagePath: string;
   }> = [];
 
+  const insertPhoto = db.prepare(
+    "INSERT INTO store_photos (id, store_id, file_path) VALUES (?, ?, ?)"
+  );
+  const insertProduct = db.prepare(
+    `INSERT INTO products (id, store_id, photo_id, name, description, price, cropped_image_path, original_image_path, bbox_x, bbox_y, bbox_w, bbox_h)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+
   for (const photo of photos) {
     const photoId = uuidv4();
     const ext = photo.name.split(".").pop() || "jpg";
@@ -53,33 +59,20 @@ async function processPhotosForStore(
     fs.writeFileSync(filePath, Buffer.from(bytes));
 
     const dbFilePath = `/api/images/stores/${fileName}`;
-    db.run("INSERT INTO store_photos (id, store_id, file_path) VALUES (?, ?, ?)", [
-      photoId,
-      storeId,
-      dbFilePath,
-    ]);
+    insertPhoto.run(photoId, storeId, dbFilePath);
 
     const detected = await scanImageForProducts(filePath);
 
     for (const product of detected) {
       const productId = uuidv4();
       const croppedPath = await cropProduct(
-        filePath,
-        product.bboxX,
-        product.bboxY,
-        product.bboxW,
-        product.bboxH,
-        productId
+        filePath, product.bboxX, product.bboxY, product.bboxW, product.bboxH, productId
       );
 
-      db.run(
-        `INSERT INTO products (id, store_id, photo_id, name, description, price, cropped_image_path, original_image_path, bbox_x, bbox_y, bbox_w, bbox_h)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          productId, storeId, photoId, product.name, product.description,
-          product.price, croppedPath, dbFilePath, product.bboxX, product.bboxY,
-          product.bboxW, product.bboxH,
-        ]
+      insertProduct.run(
+        productId, storeId, photoId, product.name, product.description,
+        product.price, croppedPath, dbFilePath, product.bboxX, product.bboxY,
+        product.bboxW, product.bboxH,
       );
 
       allProducts.push({
@@ -90,8 +83,6 @@ async function processPhotosForStore(
         croppedImagePath: croppedPath,
       });
     }
-
-    saveDb(); // persist after each photo's products
   }
 
   return allProducts;
@@ -110,18 +101,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
   }
 
-  const db = await getDb();
+  const db = getDb();
   const storeId = uuidv4();
 
-  db.run(
-    "INSERT INTO stores (id, name, description, latitude, longitude, address) VALUES (?, ?, ?, ?, ?, ?)",
-    [storeId, name, description || "", latitude, longitude, address || ""]
-  );
-  saveDb(); // persist the store before the slow photo scan
+  db.prepare(
+    "INSERT INTO stores (id, name, description, latitude, longitude, address) VALUES (?, ?, ?, ?, ?, ?)"
+  ).run(storeId, name, description || "", latitude, longitude, address || "");
 
   const allProducts = await processPhotosForStore(db, storeId, photos);
-
-  if (allProducts.length > 0) saveDb();
 
   return NextResponse.json({
     store: { id: storeId, name, description, latitude, longitude, address },
@@ -137,18 +124,16 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
   }
 
-  const db = await getDb();
+  const db = getDb();
 
-  const existing = db.exec("SELECT id FROM stores WHERE id = ?", [id]);
-  if (!existing.length || !existing[0].values.length) {
+  const existing = db.prepare("SELECT id FROM stores WHERE id = ?").get(id);
+  if (!existing) {
     return NextResponse.json({ error: "Store not found" }, { status: 404 });
   }
 
-  db.run(
-    "UPDATE stores SET address = ?, latitude = ?, longitude = ? WHERE id = ?",
-    [address || "", latitude, longitude, id]
-  );
-  saveDb();
+  db.prepare(
+    "UPDATE stores SET address = ?, latitude = ?, longitude = ? WHERE id = ?"
+  ).run(address || "", latitude, longitude, id);
 
   return NextResponse.json({ id, address, latitude, longitude });
 }

@@ -61,9 +61,21 @@ ${text}`,
   }
 
   // Step 2: For each parsed item, search local products
-  const db = await getDb();
+  const db = getDb();
   const userLat = parseFloat(lat) || 0;
   const userLng = parseFloat(lng) || 0;
+
+  const searchStmt = db.prepare(
+    `SELECT
+      p.id, p.name, p.description, p.price, p.cropped_image_path,
+      s.id as store_id, s.name as store_name, s.latitude, s.longitude, s.address,
+      ((s.latitude - ?) * (s.latitude - ?) + (s.longitude - ?) * (s.longitude - ?)) as dist_sq
+    FROM products p
+    JOIN stores s ON p.store_id = s.id
+    WHERE p.name LIKE ? OR p.description LIKE ?
+    ORDER BY dist_sq ASC
+    LIMIT 10`
+  );
 
   const results: Record<string, {
     item: ParsedItem;
@@ -82,39 +94,27 @@ ${text}`,
   }> = {};
 
   for (const item of items) {
-    // Search with the full name first, then individual significant words
     const searchTerms = buildSearchTerms(item.name);
     let alternatives: typeof results[string]["alternatives"] = [];
 
     for (const term of searchTerms) {
       const like = `%${term}%`;
-      const rows = db.exec(
-        `SELECT
-          p.id, p.name, p.description, p.price, p.cropped_image_path,
-          s.id as store_id, s.name as store_name, s.latitude, s.longitude, s.address,
-          ((s.latitude - ?) * (s.latitude - ?) + (s.longitude - ?) * (s.longitude - ?)) as dist_sq
-        FROM products p
-        JOIN stores s ON p.store_id = s.id
-        WHERE p.name LIKE ? OR p.description LIKE ?
-        ORDER BY dist_sq ASC
-        LIMIT 10`,
-        [userLat, userLat, userLng, userLng, like, like]
-      );
+      const rows = searchStmt.all(userLat, userLat, userLng, userLng, like, like) as Record<string, unknown>[];
 
-      if (rows.length && rows[0].values.length) {
-        alternatives = rows[0].values.map((row: (string | number | null | Uint8Array)[]) => ({
-          id: row[0] as string,
-          name: row[1] as string,
-          description: row[2] as string,
-          price: row[3] as number,
-          croppedImagePath: row[4] as string,
-          storeId: row[5] as string,
-          storeName: row[6] as string,
-          latitude: row[7] as number,
-          longitude: row[8] as number,
-          address: (row[9] as string) || "",
+      if (rows.length > 0) {
+        alternatives = rows.map((row) => ({
+          id: row.id as string,
+          name: row.name as string,
+          description: row.description as string,
+          price: row.price as number,
+          croppedImagePath: row.cropped_image_path as string,
+          storeId: row.store_id as string,
+          storeName: row.store_name as string,
+          latitude: row.latitude as number,
+          longitude: row.longitude as number,
+          address: (row.address as string) || "",
         }));
-        break; // found results, stop trying broader terms
+        break;
       }
     }
 
@@ -132,7 +132,6 @@ function buildSearchTerms(name: string): string[] {
     .filter((w) => w.length > 2)
     .filter((w) => !["the", "and", "for", "with", "pack", "set", "pair"].includes(w.toLowerCase()));
 
-  // Try individual significant words
   for (const word of words) {
     if (word.length >= 4) {
       terms.push(word);

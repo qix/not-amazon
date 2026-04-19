@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, saveDb } from "@/lib/db";
+import { getDb } from "@/lib/db";
 import { scanImageForProducts, cropProduct } from "@/lib/productScanner";
 import { getStorePhotosDir } from "@/lib/env";
 import { v4 as uuidv4 } from "uuid";
@@ -11,11 +11,10 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id: storeId } = await params;
-  const db = await getDb();
+  const db = getDb();
 
-  // Verify store exists
-  const store = db.exec("SELECT id FROM stores WHERE id = ?", [storeId]);
-  if (!store.length || !store[0].values.length) {
+  const store = db.prepare("SELECT id FROM stores WHERE id = ?").get(storeId);
+  if (!store) {
     return NextResponse.json({ error: "Store not found" }, { status: 404 });
   }
 
@@ -28,6 +27,14 @@ export async function POST(
 
   const uploadDir = getStorePhotosDir();
   if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+
+  const insertPhoto = db.prepare(
+    "INSERT INTO store_photos (id, store_id, file_path) VALUES (?, ?, ?)"
+  );
+  const insertProduct = db.prepare(
+    `INSERT INTO products (id, store_id, photo_id, name, description, price, cropped_image_path, original_image_path, bbox_x, bbox_y, bbox_w, bbox_h)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
 
   const allProducts: Array<{
     id: string;
@@ -47,33 +54,20 @@ export async function POST(
     fs.writeFileSync(filePath, Buffer.from(bytes));
 
     const dbFilePath = `/api/images/stores/${fileName}`;
-    db.run("INSERT INTO store_photos (id, store_id, file_path) VALUES (?, ?, ?)", [
-      photoId,
-      storeId,
-      dbFilePath,
-    ]);
+    insertPhoto.run(photoId, storeId, dbFilePath);
 
     const detected = await scanImageForProducts(filePath);
 
     for (const product of detected) {
       const productId = uuidv4();
       const croppedPath = await cropProduct(
-        filePath,
-        product.bboxX,
-        product.bboxY,
-        product.bboxW,
-        product.bboxH,
-        productId
+        filePath, product.bboxX, product.bboxY, product.bboxW, product.bboxH, productId
       );
 
-      db.run(
-        `INSERT INTO products (id, store_id, photo_id, name, description, price, cropped_image_path, original_image_path, bbox_x, bbox_y, bbox_w, bbox_h)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          productId, storeId, photoId, product.name, product.description,
-          product.price, croppedPath, dbFilePath, product.bboxX, product.bboxY,
-          product.bboxW, product.bboxH,
-        ]
+      insertProduct.run(
+        productId, storeId, photoId, product.name, product.description,
+        product.price, croppedPath, dbFilePath, product.bboxX, product.bboxY,
+        product.bboxW, product.bboxH,
       );
 
       allProducts.push({
@@ -84,8 +78,6 @@ export async function POST(
         croppedImagePath: croppedPath,
       });
     }
-
-    saveDb(); // persist after each photo's products
   }
 
   return NextResponse.json({
