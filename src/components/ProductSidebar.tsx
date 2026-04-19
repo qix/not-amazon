@@ -40,7 +40,6 @@ interface ProductSidebarProps {
   onStoreHover?: (storeId: string | null) => void;
   onStoreSelect?: (storeId: string | null) => void;
   onDeleteProduct?: (id: string) => void;
-  onClearAll?: () => void;
   onStoreUpdated?: () => void;
 }
 
@@ -151,13 +150,10 @@ function StoreAddressEditor({ store, onUpdated }: { store: Store; onUpdated?: ()
   );
 }
 
-export default function ProductSidebar({ products, stores, query, loading, amazonProduct, selectedStoreId, onStoreHover, onStoreSelect, onDeleteProduct, onClearAll, onStoreUpdated }: ProductSidebarProps) {
-  const [confirmClear, setConfirmClear] = useState(false);
+export default function ProductSidebar({ products, stores, query, loading, amazonProduct, selectedStoreId, onStoreHover, onStoreSelect, onDeleteProduct, onStoreUpdated }: ProductSidebarProps) {
   const [storesExpanded, setStoresExpanded] = useState(true);
 
-  const filteredProducts = selectedStoreId
-    ? products.filter((p) => p.storeId === selectedStoreId)
-    : products;
+  const filteredProducts = products;
   const selectedStoreName = selectedStoreId
     ? stores.find((s) => s.id === selectedStoreId)?.name
     : null;
@@ -208,31 +204,6 @@ export default function ProductSidebar({ products, stores, query, loading, amazo
               </>
             )}
           </div>
-          {filteredProducts.length > 0 && onClearAll && (
-            confirmClear ? (
-              <div className="flex items-center gap-1.5">
-                <button
-                  onClick={() => { onClearAll(); setConfirmClear(false); }}
-                  className="px-2 py-1 text-xs font-medium bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
-                >
-                  Confirm
-                </button>
-                <button
-                  onClick={() => setConfirmClear(false)}
-                  className="px-2 py-1 text-xs font-medium bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => setConfirmClear(true)}
-                className="px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 rounded transition-colors"
-              >
-                Clear All
-              </button>
-            )
-          )}
         </div>
       </div>
 

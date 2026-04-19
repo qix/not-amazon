@@ -39,7 +39,7 @@ export default function Home() {
   const [showAddStore, setShowAddStore] = useState(false);
   const [hoveredStoreId, setHoveredStoreId] = useState<string | null>(null);
   const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null);
-  const [locationLoaded, setLocationLoaded] = useState(false);
+  const [storeProducts, setStoreProducts] = useState<Product[]>([]);
   const [photosStore, setPhotosStore] = useState<{ id: string; name: string } | null>(null);
   const [amazonProduct, setAmazonProduct] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -51,13 +51,10 @@ export default function Home() {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           setUserLocation([pos.coords.latitude, pos.coords.longitude]);
-          setLocationLoaded(true);
         },
-        () => setLocationLoaded(true),
-        { enableHighAccuracy: true }
+        () => {},
+        { enableHighAccuracy: true, timeout: 10000 }
       );
-    } else {
-      setLocationLoaded(true);
     }
   }, []);
 
@@ -93,6 +90,29 @@ export default function Home() {
     },
     [userLocation]
   );
+
+  const fetchStoreProducts = useCallback(async (storeId: string) => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/products?storeId=${encodeURIComponent(storeId)}`);
+      const data = await res.json();
+      setStoreProducts(data);
+    } catch (err) {
+      console.error("Failed to fetch store products:", err);
+      setStoreProducts([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const handleStoreSelect = useCallback((storeId: string | null) => {
+    setSelectedStoreId(storeId);
+    if (storeId) {
+      fetchStoreProducts(storeId);
+    } else {
+      setStoreProducts([]);
+    }
+  }, [fetchStoreProducts]);
 
   useEffect(() => {
     fetchStores();
@@ -170,14 +190,6 @@ export default function Home() {
     }
   }, []);
 
-  const clearAllProducts = useCallback(async () => {
-    try {
-      await fetch("/api/products?all=true", { method: "DELETE" });
-      setProducts([]);
-    } catch (err) {
-      console.error("Failed to clear products:", err);
-    }
-  }, []);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -273,32 +285,32 @@ export default function Home() {
           `}
         >
           <ProductSidebar
-            products={products}
+            products={selectedStoreId ? storeProducts : products}
             stores={stores}
             query={query}
             loading={loading}
             amazonProduct={amazonProduct}
             selectedStoreId={selectedStoreId}
             onStoreHover={setHoveredStoreId}
-            onStoreSelect={(id) => { setSelectedStoreId(id); }}
+            onStoreSelect={handleStoreSelect}
             onDeleteProduct={deleteProduct}
-            onClearAll={clearAllProducts}
-            onStoreUpdated={fetchStores}
+            onStoreUpdated={() => {
+              fetchStores();
+              if (selectedStoreId) fetchStoreProducts(selectedStoreId);
+            }}
           />
         </div>
 
         {/* Map */}
-        <div className="flex-1 relative">
-          {locationLoaded && (
-            <Map
-              center={userLocation}
-              stores={stores}
-              selectedStoreId={hoveredStoreId || selectedStoreId}
-              onStoreClick={(store) => {
-                setPhotosStore({ id: store.id, name: store.name });
-              }}
-            />
-          )}
+        <div className="flex-1 relative min-h-[300px]">
+          <Map
+            center={userLocation}
+            stores={stores}
+            selectedStoreId={hoveredStoreId || selectedStoreId}
+            onStoreClick={(store) => {
+              setPhotosStore({ id: store.id, name: store.name });
+            }}
+          />
 
           {/* Mobile action buttons (visible when sidebar is closed) */}
           <div className="absolute bottom-4 left-4 right-4 flex gap-2 sm:hidden z-[300]">
@@ -325,6 +337,7 @@ export default function Home() {
         onStoreAdded={() => {
           fetchStores();
           searchProducts(query);
+          if (selectedStoreId) fetchStoreProducts(selectedStoreId);
         }}
         userLocation={userLocation}
       />
@@ -335,6 +348,7 @@ export default function Home() {
         onClose={() => setPhotosStore(null)}
         onPhotosAdded={() => {
           searchProducts(query);
+          if (photosStore) fetchStoreProducts(photosStore.id);
         }}
         store={photosStore}
       />
